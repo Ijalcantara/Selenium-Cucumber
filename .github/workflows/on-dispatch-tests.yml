@@ -1,9 +1,9 @@
-name: Run Selenium-Cucumber Tests with Grafana Loki (v16)
+name: Run Selenium-Cucumber Tests with Grafana Loki (v17)
 
 on:
-  workflow_dispatch:   # Manual trigger
+  workflow_dispatch:          # Manual trigger
   repository_dispatch:
-    types: [run-tests] # External trigger
+    types: [run-tests]       # External trigger
 
 jobs:
   selenium-tests:
@@ -19,8 +19,8 @@ jobs:
       CHROME_BIN: /usr/bin/chromium-browser
 
       # 🔐 Grafana Loki Cloud Config
-      GRAFANA_LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
-      GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
+      GRAFANA_LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}      # must include /loki/api/v1/push
+      GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}  # API Token generated in Grafana Cloud
 
     steps:
       # =========================
@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@v4
 
       # =========================
-      # 2️⃣ Set up Environment
+      # 2️⃣ Set up Java & Node.js
       # =========================
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -62,7 +62,7 @@ jobs:
             ${{ runner.os }}-maven-
 
       # =========================
-      # 4️⃣ Build & Run Selenium Tests
+      # 4️⃣ Run Selenium + Cucumber Tests
       # =========================
       - name: Run Selenium + Cucumber Tests
         run: |
@@ -85,34 +85,21 @@ jobs:
           path: allure-report
 
       # =========================
-      # 6️⃣ Verify Grafana Loki Token
-      # =========================
-      - name: Verify Grafana Loki Token
-        run: |
-          if [ -z "${GRAFANA_LOKI_TOKEN}" ]; then
-            echo "❌ GRAFANA_LOKI_TOKEN is not set!"
-            exit 1
-          else
-            echo "✅ GRAFANA_LOKI_TOKEN is set in the environment"
-            echo "Token length: ${#GRAFANA_LOKI_TOKEN} characters"
-          fi
-
-      # =========================
-      # 7️⃣ Push Logs to Grafana Loki
+      # 6️⃣ Push Logs to Grafana Loki
       # =========================
       - name: Push logs to Grafana Loki
         run: |
           echo "🛰️ Preparing logs for Grafana Loki..."
           mkdir -p logs
 
-          # Capture actual test logs if available
+          # Capture test logs if available
           if [ -d "target/surefire-reports" ]; then
             cat target/surefire-reports/*.txt > logs/execution.log
           else
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Create Loki log payload
+          # Create Loki payload
           echo "{ \"streams\": [
             {
               \"stream\": { 
@@ -124,7 +111,7 @@ jobs:
             }
           ]}" > loki-log.json
 
-          # Push to Grafana Loki
+          # Push logs
           echo "🔗 Pushing logs to ${GRAFANA_LOKI_URL}"
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
             -H "Authorization: Bearer ${GRAFANA_LOKI_TOKEN}" \
@@ -141,7 +128,7 @@ jobs:
           fi
 
       # =========================
-      # 8️⃣ Always Show Summary
+      # 7️⃣ Workflow Summary
       # =========================
       - name: Workflow Summary
         if: always()
