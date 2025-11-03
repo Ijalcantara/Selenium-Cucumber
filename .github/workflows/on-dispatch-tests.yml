@@ -18,7 +18,7 @@ jobs:
         run: |
           echo "🛰️ Preparing logs and metrics for Grafana Loki..."
           echo "🔧 Collecting test logs..."
-          # Example test logs - replace with your real log path or test output
+          # Replace these with your actual test log outputs
           echo "INFO: Selenium test started" > logs.txt
           echo "PASS: Login test passed" >> logs.txt
           echo "FAIL: Checkout test failed" >> logs.txt
@@ -56,7 +56,7 @@ jobs:
 
       - name: 📡 Push logs to Grafana Loki
         env:
-          LOKI_URL: "https://logs-prod-ap-southeast-1.grafana.net/loki/api/v1/push"
+          LOKI_URL: "https://logs-prod-020.grafana.net/loki/api/v1/push"
           LOKI_USER: "${{ secrets.GRAFANA_USER }}"
           LOKI_API_KEY: "${{ secrets.GRAFANA_API_KEY }}"
         run: |
