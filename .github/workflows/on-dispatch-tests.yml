@@ -1,4 +1,4 @@
-name: Selenium-Cucumber Tests + Allure + Grafana Loki + Metrics
+name: Selenium-Cucumber Tests + Allure + Grafana Loki
 
 on:
   workflow_dispatch:
@@ -15,9 +15,9 @@ jobs:
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
       CHROME_BIN: /usr/bin/chromium-browser
 
-      # Grafana Loki Cloud Config
-      GRAFANA_LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}      # Must include /loki/api/v1/push
-      GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}  # Grafana Cloud API token with Loki push permission
+      # 🔹 Grafana Loki Cloud Config
+      GRAFANA_LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}        # must include /loki/api/v1/push
+      GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}    # Grafana Cloud API key with "Loki Push" permission
 
     steps:
       - name: Checkout repository
@@ -60,16 +60,16 @@ jobs:
           mvn clean test -Dcucumber.filter.tags="@Regression"
           END_TIME=$(date +%s)
           DURATION=$((END_TIME - START_TIME))
-          echo "duration=$DURATION" >> $GITHUB_OUTPUT
 
           # Extract metrics from surefire-reports
           TOTAL=$(grep "<testsuite" target/surefire-reports/*.xml | grep -o 'tests="[0-9]*"' | awk -F'"' '{s+=$2} END{print s}')
-          PASSED=$(grep "<testsuite" target/surefire-reports/*.xml | grep -o 'failures="[0-9]*"' | awk -F'"' '{f+=$2} END{print s-f}')
-          FAILED=$(grep "<testsuite" target/surefire-reports/*.xml | grep -o 'failures="[0-9]*"' | awk -F'"' '{f+=$2} END{print f}')
+          FAILURES=$(grep "<testsuite" target/surefire-reports/*.xml | grep -o 'failures="[0-9]*"' | awk -F'"' '{f+=$2} END{print f}')
+          PASSED=$((TOTAL - FAILURES))
 
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "passed=$PASSED" >> $GITHUB_OUTPUT
-          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILURES" >> $GITHUB_OUTPUT
 
       # =========================
       # Generate & Upload Allure Report
@@ -100,7 +100,7 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Create Loki JSON payload with metrics
+          # Create Loki payload
           LOG_CONTENT=$(jq -n \
             --arg job "$PROJECT_NAME" \
             --arg content "$(cat logs/execution.log)" \
