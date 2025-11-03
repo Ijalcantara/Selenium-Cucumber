@@ -116,3 +116,19 @@
 2025-10-22 13:15:06 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Element is displayed: By.cssSelector: .ico-logout
 2025-10-22 13:15:07 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Clicked on element: By.cssSelector: .ico-logout
 2025-10-22 13:15:07 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Element is displayed: By.cssSelector: .ico-login
+2025-11-03 15:54:53 [main] INFO  com.cheq.demo_webshop.hooks.Hooks - Starting scenario: Login
+2025-11-03 15:54:54 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Clicked on element: By.xpath: //a[text()='Log in']
+2025-11-03 15:54:54 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Entered text in element: By.id: Email - Text: johndoe011@mail.com
+2025-11-03 15:54:54 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Entered text in element: By.id: Password - Text: secretuser123
+2025-11-03 15:54:55 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Clicked on element: By.xpath: //input[@value='Log in']
+2025-11-03 15:54:55 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Element is displayed: By.cssSelector: .ico-logout
+2025-11-03 15:54:57 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Clicked on element: By.cssSelector: .ico-logout
+2025-11-03 15:54:57 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Element is displayed: By.cssSelector: .ico-login
+2025-11-03 16:20:15 [main] INFO  com.cheq.demo_webshop.hooks.Hooks - Starting scenario: Login
+2025-11-03 16:20:16 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Clicked on element: By.xpath: //a[text()='Log in']
+2025-11-03 16:20:17 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Entered text in element: By.id: Email - Text: johndoe011@mail.com
+2025-11-03 16:20:17 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Entered text in element: By.id: Password - Text: secretuser123
+2025-11-03 16:20:18 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Clicked on element: By.xpath: //input[@value='Log in']
+2025-11-03 16:20:18 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Element is displayed: By.cssSelector: .ico-logout
+2025-11-03 16:20:20 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Clicked on element: By.cssSelector: .ico-logout
+2025-11-03 16:20:20 [main] INFO  com.cheq.demo_webshop.utils.ElementActionUtils - Element is displayed: By.cssSelector: .ico-login

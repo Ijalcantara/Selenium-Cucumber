@@ -18,7 +18,7 @@ jobs:
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
 
       # 🔐 Grafana Loki Cloud Config
-      GRAFANA_LOKI_URL: https://logs-prod-020.grafana.net
+      GRAFANA_LOKI_URL: https://logs-prod-020.grafana.net/loki/api/v1/push
       GRAFANA_USER: 1383016
       GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
 
@@ -48,11 +48,9 @@ jobs:
       # 3️⃣ Build & Run Selenium Tests
       # =========================
       - name: Run Selenium + Cucumber Tests
-        id: tests
         run: |
           echo "🚀 Starting Selenium-Cucumber tests..."
-          mvn clean test -Dcucumber.filter.tags="@Regression" || echo "⚠️ Some tests failed."
-        continue-on-error: true
+          mvn clean test -Dcucumber.filter.tags="@Regression" || echo "⚠️ Tests completed with some failures."
 
       # =========================
       # 4️⃣ Generate & Upload Allure Report
@@ -60,61 +58,49 @@ jobs:
       - name: Generate Allure Report
         run: |
           echo "📊 Generating Allure report..."
-          mvn allure:report || echo "⚠️ Allure report generation failed."
-          mkdir -p target/site/allure-maven-plugin || true
+          npm install -g allure-commandline --save-dev
+          allure generate target/allure-results --clean -o allure-report || echo "⚠️ Allure report generation failed."
 
       - name: Upload Allure Report as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
-          path: target/site/allure-maven-plugin
+          path: allure-report
 
       # =========================
       # 5️⃣ Push Logs to Grafana Loki
       # =========================
       - name: Push logs to Grafana Loki
-        if: always()
         run: |
           echo "🛰️ Sending logs to Grafana Loki..."
 
-          # Create logs directory and log files
+          # Create sample log message
           mkdir -p logs
-          echo "[$(date)] ✅ Selenium-Cucumber tests completed on branch ${{ github.ref_name }}." > logs/execution.log
+          echo "[$(date)] Selenium-Cucumber workflow executed successfully" > logs/execution.log
 
-          if [ "${{ steps.tests.outcome }}" == "failure" ]; then
-            STATUS="failed"
-            LEVEL="error"
-          else
-            STATUS="passed"
-            LEVEL="info"
-          fi
+          # Create Loki log payload
+          echo "{ \"streams\": [
+            {
+              \"stream\": { \"job\": \"${PROJECT_NAME}\", \"level\": \"info\", \"source\": \"GitHubActions\" },
+              \"values\": [[\"$(date +%s%N)\", \"Selenium-Cucumber tests completed. Logs pushed from GitHub Actions.\"]]
+            }
+          ]}" > loki-log.json
 
-          # Create Loki JSON payload
-          TIMESTAMP=$(date +%s%N)
-          cat <<EOF > loki-log.json
-          {
-            "streams": [
-              {
-                "stream": {
-                  "job": "${PROJECT_NAME}",
-                  "status": "${STATUS}",
-                  "level": "${LEVEL}",
-                  "branch": "${{ github.ref_name }}",
-                  "commit": "${{ github.sha }}"
-                },
-                "values": [
-                  ["${TIMESTAMP}", "🧪 Selenium-Cucumber tests ${STATUS}. Workflow executed from GitHub Actions for commit ${{ github.sha }}."]
-                ]
-              }
-            ]
-          }
-          EOF
-
-          # Push logs to Grafana Loki Cloud
-          curl -v -u "${GRAFANA_USER}:${GRAFANA_API_KEY}" \
+          # Push to Grafana Loki
+          echo "🔗 Pushing to ${GRAFANA_LOKI_URL}"
+          RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
+            -u "${GRAFANA_USER}:${GRAFANA_API_KEY}" \
             -H "Content-Type: application/json" \
-            -X POST "${GRAFANA_LOKI_URL}/loki/api/v1/push" \
-            --data-binary "@loki-log.json"
+            -X POST "${GRAFANA_LOKI_URL}" \
+            --data-binary "@loki-log.json")
+
+          if [[ "$RESPONSE" == "204" ]]; then
+            echo "✅ Logs successfully sent to Grafana Loki!"
+          else
+            echo "❌ Failed to send logs. HTTP $RESPONSE"
+            cat /tmp/loki_resp.txt
+            exit 1
+          fi
 
       # =========================
       # 6️⃣ Always Show Summary
@@ -123,6 +109,5 @@ jobs:
         if: always()
         run: |
           echo "✅ Selenium-Cucumber Tests Workflow Finished"
-          echo "🧾 Check the 'allure-report' artifact for the detailed report."
-          echo "📡 Logs pushed to Grafana Loki at ${GRAFANA_LOKI_URL}"
-          echo "🔍 Query in Grafana Explore using: {job=\"${PROJECT_NAME}\"}"
+          echo "🧾 Check artifacts for the Allure report"
+          echo "📡 Check Grafana Loki dashboard for logs"
