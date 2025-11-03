@@ -1,61 +1,115 @@
-name: CI-CD Pipeline with Grafana Loki
+name: Selenium-Cucumber Tests + Allure + Grafana Loki
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-
-env:
-  PROJECT_NAME: Selenium-Cucumber-Tests
-  GRAFANA_LOKI_URL: https://logs-prod-ap-southeast-1.grafana.net/loki/api/v1/push
-  # Token stored in GitHub secrets (from your Grafana Cloud Service Account)
-  GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
+  workflow_dispatch:
+  repository_dispatch:
+    types: [run-tests]
 
 jobs:
-  test-and-log:
+  selenium-tests:
+    name: Selenium + Cucumber + Allure + Loki
     runs-on: ubuntu-latest
 
+    env:
+      PROJECT_NAME: Selenium-Cucumber-Tests
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+      CHROME_BIN: /usr/bin/chromium-browser
+
+      # 🔹 Grafana Loki Cloud Config
+      GRAFANA_LOKI_URL: https://logs-prod-ap-southeast-1.grafana.net/loki/api/v1/push
+      GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}  # cicd-loki-writer token with logs:write scope
+
     steps:
+      # -----------------------------
+      # Setup and Dependencies
+      # -----------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      - name: Run Selenium Cucumber tests
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 20
+
+      - name: Install Chrome & Chromedriver
         run: |
-          echo "🚀 Running Selenium Cucumber tests..."
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver jq
+          echo "Chrome version: $(chromium-browser --version)"
+          echo "Chromedriver version: $(chromedriver --version)"
+
+      - name: Cache Maven packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # -----------------------------
+      # Run Selenium Cucumber Tests
+      # -----------------------------
+      - name: Run Selenium + Cucumber Tests
+        id: run-tests
+        run: |
+          echo "🚀 Running Selenium-Cucumber tests..."
+          START_TIME=$(date +%s)
           mvn clean test || true   # Continue even if tests fail so logs still push
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
 
-      - name: Install jq
-        run: sudo apt-get install -y jq
+          # Extract metrics from Surefire XML reports
+          TOTAL=$(grep "<testsuite" target/surefire-reports/*.xml | grep -o 'tests="[0-9]*"' | awk -F'"' '{s+=$2} END{print s}')
+          FAILURES=$(grep "<testsuite" target/surefire-reports/*.xml | grep -o 'failures="[0-9]*"' | awk -F'"' '{f+=$2} END{print f}')
+          PASSED=$((TOTAL - FAILURES))
 
-      - name: Push logs and metrics to Grafana Loki (Debug)
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILURES" >> $GITHUB_OUTPUT
+
+      # -----------------------------
+      # Generate Allure Report
+      # -----------------------------
+      - name: Generate Allure Report
+        run: |
+          npm install -g allure-commandline
+          allure generate target/allure-results --clean -o allure-report
+
+      - name: Upload Allure Report as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report
+
+      # -----------------------------
+      # Push Logs and Metrics to Grafana Loki
+      # -----------------------------
+      - name: Push logs and metrics to Grafana Loki
         run: |
           echo "🛰️ Preparing logs and metrics for Grafana Loki..."
           mkdir -p logs
 
-          # Capture raw test logs
+          # Capture test logs (fallback if missing)
           if [ -d "target/surefire-reports" ] && [ "$(ls -A target/surefire-reports)" ]; then
             cat target/surefire-reports/*.txt > logs/execution.log
           else
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Create Loki payload (JSON structure)
-          LOG_CONTENT=$(jq -n \
-            --arg job "$PROJECT_NAME" \
-            --arg content "$(cat logs/execution.log)" \
-            --arg total "0" \
-            --arg passed "0" \
-            --arg failed "0" \
-            --arg duration "30" \
-            '{streams:[{stream:{job:$job, level:"info", source:"GitHubActions", total:$total, passed:$passed, failed:$failed, duration_seconds:$duration}, values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
+          echo "🔧 Formatting logs for Loki..."
+          # Convert each log line into a proper Loki entry
+          VALUES=$(awk '{ print "[\""strftime("%s%N")"\", \""$0"\"]" }' logs/execution.log | paste -sd "," -)
+          LOG_JSON="{\"streams\": [{\"stream\": {\"job\": \"$PROJECT_NAME\", \"source\": \"GitHubActions\", \"level\": \"info\", \"total\": \"${{ steps.run-tests.outputs.total }}\", \"passed\": \"${{ steps.run-tests.outputs.passed }}\", \"failed\": \"${{ steps.run-tests.outputs.failed }}\", \"duration_seconds\": \"${{ steps.run-tests.outputs.duration }}\"}, \"values\": [$VALUES]}]}"
 
-          echo "$LOG_CONTENT" > loki-log.json
+          echo "$LOG_JSON" > loki-log.json
+          echo "📄 Payload size: $(wc -c < loki-log.json) bytes"
 
           echo "🔗 Pushing logs to ${GRAFANA_LOKI_URL} ..."
           RESPONSE=$(curl -v \
@@ -75,3 +129,13 @@ jobs:
           else
             echo "✅ Logs successfully sent to Grafana Loki!"
           fi
+
+      # -----------------------------
+      # Workflow Summary
+      # -----------------------------
+      - name: Workflow Summary
+        if: always()
+        run: |
+          echo "✅ Selenium-Cucumber workflow finished"
+          echo "🧾 Check artifacts for the Allure report"
+          echo "📡 Check Grafana Loki dashboard for logs and metrics"
