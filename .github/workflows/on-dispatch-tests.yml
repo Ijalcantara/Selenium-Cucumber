@@ -1,9 +1,9 @@
 name: Run Selenium-Cucumber Tests with Grafana Loki (v16)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # Manual trigger
   repository_dispatch:
-    types: [run-tests]
+    types: [run-tests] # External trigger
 
 jobs:
   selenium-tests:
@@ -84,24 +84,22 @@ jobs:
         with:
           name: allure-report
           path: allure-report
-            
-            
-            # =========================
-            # 5️⃣ Verify Grafana Loki Token
-            # =========================
-                  - name: Verify Grafana Loki Token
-                  run: |
-                    if [ -z "${GRAFANA_LOKI_TOKEN}" ]; then
-                      echo "❌ GRAFANA_LOKI_TOKEN is not set!"
-                      exit 1
-                    else
-                      echo "✅ GRAFANA_LOKI_TOKEN is set in the environment"
-                      echo "Token length: ${#GRAFANA_LOKI_TOKEN} characters"
-                    fi
-
 
       # =========================
-      # 6️⃣ Push Logs to Grafana Loki
+      # 6️⃣ Verify Grafana Loki Token
+      # =========================
+      - name: Verify Grafana Loki Token
+        run: |
+          if [ -z "${GRAFANA_LOKI_TOKEN}" ]; then
+            echo "❌ GRAFANA_LOKI_TOKEN is not set!"
+            exit 1
+          else
+            echo "✅ GRAFANA_LOKI_TOKEN is set in the environment"
+            echo "Token length: ${#GRAFANA_LOKI_TOKEN} characters"
+          fi
+
+      # =========================
+      # 7️⃣ Push Logs to Grafana Loki
       # =========================
       - name: Push logs to Grafana Loki
         run: |
@@ -144,7 +142,7 @@ jobs:
           fi
 
       # =========================
-      # 7️⃣ Always Show Summary
+      # 8️⃣ Always Show Summary
       # =========================
       - name: Workflow Summary
         if: always()
