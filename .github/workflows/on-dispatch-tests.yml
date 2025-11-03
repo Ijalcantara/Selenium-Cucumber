@@ -1,9 +1,9 @@
 name: Run Selenium-Cucumber Tests with Grafana Loki (v17)
 
 on:
-  workflow_dispatch:          # Manual trigger
+  workflow_dispatch:
   repository_dispatch:
-    types: [run-tests]       # External trigger
+    types: [run-tests]
 
 jobs:
   selenium-tests:
@@ -11,27 +11,18 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # =========================
-      # 🔧 Environment Variables
-      # =========================
       PROJECT_NAME: Selenium-Cucumber-Tests
       JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
       CHROME_BIN: /usr/bin/chromium-browser
 
-      # 🔐 Grafana Loki Cloud Config
+      # Grafana Loki Cloud Config
       GRAFANA_LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}      # must include /loki/api/v1/push
       GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}  # API Token generated in Grafana Cloud
 
     steps:
-      # =========================
-      # 1️⃣ Checkout Repository
-      # =========================
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # =========================
-      # 2️⃣ Set up Java & Node.js
-      # =========================
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -50,9 +41,6 @@ jobs:
           echo "Chrome version: $(chromium-browser --version)"
           echo "Chromedriver version: $(chromedriver --version)"
 
-      # =========================
-      # 3️⃣ Cache Maven Dependencies
-      # =========================
       - name: Cache Maven packages
         uses: actions/cache@v3
         with:
@@ -61,17 +49,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # =========================
-      # 4️⃣ Run Selenium + Cucumber Tests
-      # =========================
       - name: Run Selenium + Cucumber Tests
         run: |
           echo "🚀 Starting Selenium-Cucumber tests..."
           mvn clean test -Dcucumber.filter.tags="@Regression"
 
-      # =========================
-      # 5️⃣ Generate & Upload Allure Report
-      # =========================
       - name: Generate Allure Report
         run: |
           echo "📊 Generating Allure report..."
@@ -84,32 +66,21 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # =========================
-      # 6️⃣ Push Logs to Grafana Loki
-      # =========================
       - name: Push logs to Grafana Loki
         run: |
           echo "🛰️ Preparing logs for Grafana Loki..."
           mkdir -p logs
 
           # Capture test logs if available
-          if [ -d "target/surefire-reports" ]; then
+          if [ -d "target/surefire-reports" ] && [ "$(ls -A target/surefire-reports)" ]; then
             cat target/surefire-reports/*.txt > logs/execution.log
           else
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Create Loki payload
-          echo "{ \"streams\": [
-            {
-              \"stream\": { 
-                \"job\": \"${PROJECT_NAME}\", 
-                \"level\": \"info\", 
-                \"source\": \"GitHubActions\" 
-              },
-              \"values\": [[\"$(date +%s%N)\", \"$(cat logs/execution.log | tr '\n' ' ')\" ]]
-            }
-          ]}" > loki-log.json
+          # Create Loki payload safely
+          LOG_CONTENT=$(cat logs/execution.log | jq -R -s '{streams:[{stream:{job:"'"${PROJECT_NAME}"'", level:"info", source:"GitHubActions"}, values:[[(now|floor|tostring)+"000000000", .]]}]}')
+          echo "$LOG_CONTENT" > loki-log.json
 
           # Push logs
           echo "🔗 Pushing logs to ${GRAFANA_LOKI_URL}"
@@ -127,9 +98,6 @@ jobs:
             exit 1
           fi
 
-      # =========================
-      # 7️⃣ Workflow Summary
-      # =========================
       - name: Workflow Summary
         if: always()
         run: |
