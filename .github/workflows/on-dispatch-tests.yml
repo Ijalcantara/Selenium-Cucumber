@@ -1,4 +1,4 @@
-name: Run Selenium-Cucumber Tests with Grafana Loki (v15)
+name: Run Selenium-Cucumber Tests with Grafana Loki (v16)
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
       # 🔐 Grafana Loki Cloud Config
       GRAFANA_LOKI_URL: https://logs-prod-020.grafana.net/loki/api/v1/push
       GRAFANA_USER: 1383016
-      GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+      GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
 
     steps:
       # =========================
@@ -74,14 +74,17 @@ jobs:
         run: |
           echo "🛰️ Sending logs to Grafana Loki..."
 
-          # Create sample log message
           mkdir -p logs
           echo "[$(date)] Selenium-Cucumber workflow executed successfully" > logs/execution.log
 
           # Create Loki log payload
           echo "{ \"streams\": [
             {
-              \"stream\": { \"job\": \"${PROJECT_NAME}\", \"level\": \"info\", \"source\": \"GitHubActions\" },
+              \"stream\": { 
+                \"job\": \"${PROJECT_NAME}\", 
+                \"level\": \"info\", 
+                \"source\": \"GitHubActions\" 
+              },
               \"values\": [[\"$(date +%s%N)\", \"Selenium-Cucumber tests completed. Logs pushed from GitHub Actions.\"]]
             }
           ]}" > loki-log.json
@@ -89,7 +92,7 @@ jobs:
           # Push to Grafana Loki
           echo "🔗 Pushing to ${GRAFANA_LOKI_URL}"
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
-            -u "${GRAFANA_USER}:${GRAFANA_API_KEY}" \
+            -H "Authorization: Bearer ${GRAFANA_LOKI_TOKEN}" \
             -H "Content-Type: application/json" \
             -X POST "${GRAFANA_LOKI_URL}" \
             --data-binary "@loki-log.json")
