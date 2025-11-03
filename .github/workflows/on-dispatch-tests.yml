@@ -84,6 +84,21 @@ jobs:
         with:
           name: allure-report
           path: allure-report
+            
+            
+            # =========================
+            # 5️⃣ Verify Grafana Loki Token
+            # =========================
+                  - name: Verify Grafana Loki Token
+                  run: |
+                    if [ -z "${GRAFANA_LOKI_TOKEN}" ]; then
+                      echo "❌ GRAFANA_LOKI_TOKEN is not set!"
+                      exit 1
+                    else
+                      echo "✅ GRAFANA_LOKI_TOKEN is set in the environment"
+                      echo "Token length: ${#GRAFANA_LOKI_TOKEN} characters"
+                    fi
+
 
       # =========================
       # 6️⃣ Push Logs to Grafana Loki
