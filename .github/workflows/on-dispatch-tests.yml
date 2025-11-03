@@ -89,21 +89,28 @@ jobs:
             '{streams:[{stream:{job:$job, level:"info", source:"GitHubActions"}, values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
           echo "$LOG_CONTENT" > loki-log.json
 
-          # Push logs
-          echo "🔗 Pushing logs to ${GRAFANA_LOKI_URL}"
-          RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
-            -H "Authorization: Bearer ${GRAFANA_LOKI_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -X POST "${GRAFANA_LOKI_URL}" \
-            --data-binary "@loki-log.json")
+          # Push logs with 3 retries
+          for i in 1 2 3; do
+            echo "🔗 Pushing logs to ${GRAFANA_LOKI_URL} (Attempt $i)..."
+            RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
+              -H "Authorization: Bearer ${GRAFANA_LOKI_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -X POST "${GRAFANA_LOKI_URL}" \
+              --data-binary "@loki-log.json")
 
-          if [[ "$RESPONSE" == "204" ]]; then
-            echo "✅ Logs successfully sent to Grafana Loki!"
-          else
-            echo "❌ Failed to send logs. HTTP $RESPONSE"
-            cat /tmp/loki_resp.txt
-            exit 1
-          fi
+            if [[ "$RESPONSE" == "204" ]]; then
+              echo "✅ Logs successfully sent to Grafana Loki!"
+              break
+            else
+              echo "⚠️ Failed to send logs. HTTP $RESPONSE"
+              cat /tmp/loki_resp.txt
+              if [[ $i -eq 3 ]]; then
+                exit 1
+              fi
+              echo "⏳ Retrying in 5 seconds..."
+              sleep 5
+            fi
+          done
 
       # 7️⃣ Workflow Summary
       - name: Workflow Summary
