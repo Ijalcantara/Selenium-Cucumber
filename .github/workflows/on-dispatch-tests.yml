@@ -19,8 +19,7 @@ jobs:
       CHROME_BIN: /usr/bin/chromium-browser
 
       # 🔐 Grafana Loki Cloud Config
-      GRAFANA_LOKI_URL: https://logs-prod-020.grafana.net/loki/api/v1/push
-      GRAFANA_USER: 1383016
+      GRAFANA_LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
       GRAFANA_LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
 
     steps:
