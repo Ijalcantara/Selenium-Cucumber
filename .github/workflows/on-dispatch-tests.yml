@@ -15,7 +15,7 @@ jobs:
       HEADLESS: "true"
 
     steps:
-      # 🧩 Checkout repository
+      # 🧩 Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -30,25 +30,6 @@ jobs:
       # 🌐 Install Chrome
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
-
-      # 🌐 Install Chrome dependencies
-      - name: Install Chrome dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libnss3 \
-            fonts-liberation \
-            libxss1 \
-            libatk1.0-0 \
-            libcups2 \
-            libdrm2 \
-            libgbm1 \
-            libgtk-3-0 \
-            libpango-1.0-0 \
-            libxcomposite1 \
-            libxdamage1 \
-            libxrandr2 \
-            libxtst6
 
       # 📦 Install Allure CLI
       - name: Install Allure CLI
@@ -85,14 +66,13 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # 🔗 Push logs to Grafana Loki (handles multi-line logs safely)
+      # 🔗 Push logs to Grafana Loki (hidden credentials)
       - name: Push logs to Grafana Loki
         if: ${{ always() }}
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
           LOKI_USER: ${{ secrets.GRAFANA_LOKI_USER }}
           LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
-          PROJECT_NAME: Selenium-Cucumber-Tests
         run: |
           echo "🛰️ Preparing log payload..."
           mkdir -p logs
@@ -103,17 +83,16 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Safely escape logs as a JSON string for Loki
-          LOG_CONTENT=$(jq -Rn --arg job "$PROJECT_NAME" --arg content "$(jq -Rs . < logs/execution.log)" \
+          LOG_CONTENT=$(jq -Rn --arg job "${PROJECT_NAME}" --arg content "$(cat logs/execution.log)" \
             '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
 
           echo "$LOG_CONTENT" > loki-log.json
 
           echo "🔗 Sending logs to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
-            -u "$LOKI_USER:$LOKI_TOKEN" \
+            -u "${LOKI_USER}:${LOKI_TOKEN}" \
             -H "Content-Type: application/json" \
-            -X POST "$LOKI_URL" \
+            -X POST "${LOKI_URL}" \
             --data-binary "@loki-log.json")
 
           echo "HTTP Response Code: $RESPONSE"
@@ -123,4 +102,5 @@ jobs:
             echo "✅ Logs successfully sent to Grafana Loki!"
           else
             echo "❌ Failed to send logs. (HTTP $RESPONSE)"
-            exit 0
+            exit 0  # Don't fail entire workflow if Loki has an issue
+          fi
