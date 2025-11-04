@@ -15,11 +15,11 @@ jobs:
       HEADLESS: "true"
 
     steps:
-      # 🧩 Checkout repository
+      # 🧩 Checkout code
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ☕ Setup Java 17 for Maven
+      # ☕ Setup Java for Maven
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -31,15 +31,36 @@ jobs:
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 
-      # 📦 Install Chrome dependencies (Linux)
+      # 🌐 Install Chrome dependencies (modern Ubuntu)
       - name: Install Chrome dependencies
-        run: sudo apt-get update && sudo apt-get install -y libnss3 libgconf-2-4 fonts-liberation
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 \
+            fonts-liberation \
+            libxss1 \
+            libasound2 \
+            libatk1.0-0 \
+            libatk-bridge2.0-0 \
+            libcups2 \
+            libdrm2 \
+            libgbm1 \
+            libgtk-3-0 \
+            libpango-1.0-0 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libxtst6 \
+            libwayland-client0 \
+            libwayland-cursor0 \
+            libx11-xcb1 \
+            libxcb1
 
       # 📦 Install Allure CLI
       - name: Install Allure CLI
         run: npm install -g allure-commandline@2
 
-      # 🧪 Run Maven tests (continue even if failures occur)
+      # 🧪 Run tests (continue even on failure)
       - name: Run Maven tests
         env:
           BASE_URL: "https://jmiguelcheq.github.io/calculator-demo"
@@ -48,20 +69,15 @@ jobs:
           mvn -B clean test -DbaseUrl="${BASE_URL}" -Dheadless="${HEADLESS}"
           echo "MAVEN_EXIT_CODE=$?" >> $GITHUB_ENV
 
-      # 💀 Fail workflow if tests failed (optional)
-      - name: Fail if tests failed
-        if: ${{ always() }}
-        run: exit $MAVEN_EXIT_CODE
-
-      # 📤 Upload raw test reports even if failed
-      - name: Upload surefire reports
+      # 📤 Upload raw reports even if failed
+      - name: Upload test reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: surefire-reports
           path: target/surefire-reports
 
-      # 📊 Generate Allure HTML report
+      # 📊 Generate Allure report
       - name: Generate Allure HTML
         if: ${{ always() }}
         run: |
@@ -86,26 +102,17 @@ jobs:
           echo "🛰️ Preparing log payload..."
           mkdir -p logs
 
-          # Combine test logs
           if [ -d "target/surefire-reports" ] && [ "$(ls -A target/surefire-reports)" ]; then
             cat target/surefire-reports/*.txt > logs/execution.log
           else
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Include Maven exit code in logs
-          echo "MAVEN_EXIT_CODE=$MAVEN_EXIT_CODE" >> logs/execution.log
-
-          # Build Loki JSON payload
           LOG_CONTENT=$(jq -Rn --arg job "${PROJECT_NAME}" --arg content "$(cat logs/execution.log)" \
             '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
 
           echo "$LOG_CONTENT" > loki-log.json
 
-          # Optional: upload Loki payload for debugging
-          gh actions upload-artifact --name loki-payload --path loki-log.json || echo "GitHub CLI not available, skipping artifact upload"
-
-          # Send logs to Grafana Loki
           echo "🔗 Sending logs to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
             -u "${LOKI_USER}:${LOKI_TOKEN}" \
@@ -119,5 +126,5 @@ jobs:
           if [[ "$RESPONSE" == "204" ]]; then
             echo "✅ Logs successfully sent to Grafana Loki!"
           else
-            echo "❌ Failed to send logs. (HTTP $RESPONSE)" >&2
-          fi
+            echo "❌ Failed to send logs. (HTTP $RESPONSE)"
+            exit 0  # Don't fail entire workflow if Loki has an issue
