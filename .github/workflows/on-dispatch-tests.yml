@@ -96,9 +96,6 @@ jobs:
             PASS_RATE=$((100 * PASSES / TOTAL))
           fi
 
-          # Create JSON metrics log
-          echo "{\"tests_run\":$TOTAL,\"failures\":$FAILURES,\"passed\":$PASSES,\"pass_rate\":$PASS_RATE,\"duration_seconds\":$TEST_DURATION}" > logs/metrics.json
-
           # Combine raw execution logs
           if [ -d "target/surefire-reports" ] && [ "$(ls -A target/surefire-reports)" ]; then
             cat target/surefire-reports/*.txt > logs/execution.log
@@ -106,17 +103,23 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Prepare Loki JSON payload with metrics + execution streams
+          # Prepare Loki JSON payload with each metric as its own stream
           LOG_CONTENT=$(jq -n \
-            --slurpfile metrics logs/metrics.json \
-            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             --arg job "$PROJECT_NAME" \
+            --arg duration "$TEST_DURATION" \
+            --argjson total "$TOTAL" \
+            --argjson failures "$FAILURES" \
+            --argjson passed "$PASSES" \
+            --argjson pass_rate "$PASS_RATE" \
+            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             '{
               streams: [
-                { stream: { job: $job, source: "GitHubActions", type: "metrics" },
-                  values: [[ (now|floor|tostring)+"000000000", ($metrics[0]|@json) ]] },
-                { stream: { job: $job, source: "GitHubActions", type: "execution" },
-                  values: [[ (now|floor|tostring)+"000000000", $raw ]] }
+                { stream: { job: $job, type: "tests_run" }, values: [[ (now|floor|tostring)+"000000000", $total ]] },
+                { stream: { job: $job, type: "failures" }, values: [[ (now|floor|tostring)+"000000000", $failures ]] },
+                { stream: { job: $job, type: "passed" }, values: [[ (now|floor|tostring)+"000000000", $passed ]] },
+                { stream: { job: $job, type: "pass_rate" }, values: [[ (now|floor|tostring)+"000000000", $pass_rate ]] },
+                { stream: { job: $job, type: "duration_seconds" }, values: [[ (now|floor|tostring)+"000000000", ($duration|tonumber) ]] },
+                { stream: { job: $job, type: "execution" }, values: [[ (now|floor|tostring)+"000000000", $raw ]] }
               ]
             }'
           )
@@ -127,7 +130,7 @@ jobs:
           echo "🔗 Sending logs and metrics to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
             -u "$LOKI_USER:$LOKI_TOKEN" \
-            -H 'Content-Type: application/json' \
+            -H "Content-Type: application/json" \
             -X POST "$LOKI_URL" \
             --data-binary "@loki-log.json")
 
