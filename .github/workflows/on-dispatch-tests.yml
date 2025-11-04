@@ -41,8 +41,15 @@ jobs:
           BASE_URL: "https://github.com/Ijalcantara/Selenium-Cucumber"
         run: |
           set +e
+          START_TIME=$(date +%s)
           mvn -B clean test -DbaseUrl="${BASE_URL}" -Dheadless="${HEADLESS}"
-          echo "MAVEN_EXIT_CODE=$?" >> $GITHUB_ENV
+          TEST_EXIT_CODE=$?
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+
+          echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
+          echo "TEST_DURATION=$DURATION" >> $GITHUB_ENV
+          echo "MAVEN_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
 
       # 📤 Upload raw reports even if failed
       - name: Upload test reports
@@ -66,31 +73,66 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # 🔗 Push logs to Grafana Loki
-      - name: Push logs to Grafana Loki
+      # 🔗 Push logs + metrics to Grafana Loki
+      - name: Push logs and metrics to Grafana Loki
         if: ${{ always() }}
         env:
           PROJECT_NAME: Selenium-Cucumber-Tests
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
           LOKI_USER: ${{ secrets.GRAFANA_LOKI_USER }}
           LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
+          TEST_DURATION: ${{ env.TEST_DURATION }}
+          TEST_EXIT_CODE: ${{ env.TEST_EXIT_CODE }}
         run: |
           echo "🛰️ Preparing log payload..."
           mkdir -p logs
 
+          # 1️⃣ Extract summary metrics from surefire reports
+          PASSES=$(grep -oP 'Failures: 0, Errors: 0' target/surefire-reports/*.txt | wc -l || echo 0)
+          FAILURES=$(grep -oP 'Failures: [1-9]\d*' target/surefire-reports/*.txt | wc -l || echo 0)
+          TOTAL=$((PASSES + FAILURES))
+          PASS_RATE=0
+          if [ "$TOTAL" -gt 0 ]; then
+            PASS_RATE=$((100 * PASSES / TOTAL))
+          fi
+
+          # 2️⃣ Create structured metrics log
+          {
+            echo "status=passed count=$PASSES"
+            echo "status=failed count=$FAILURES"
+            echo "duration_seconds=$TEST_DURATION"
+            echo "pass_rate_percent=$PASS_RATE"
+          } > logs/metrics.log
+
+          # 3️⃣ Combine raw execution logs for debugging visibility
           if [ -d "target/surefire-reports" ] && [ "$(ls -A target/surefire-reports)" ]; then
             cat target/surefire-reports/*.txt > logs/execution.log
           else
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Escape newlines and quotes for Loki JSON
-          LOG_CONTENT=$(jq -Rn --arg job "$PROJECT_NAME" --arg content "$(sed 's/"/\\"/g; s/$/\\n/' logs/execution.log | tr -d '\n')" \
-            '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
+          # 4️⃣ Prepare Loki JSON payload with multiple entries
+          LOG_CONTENT=$(jq -n \
+            --arg job "$PROJECT_NAME" \
+            --slurpfile metrics <(awk '{print $0}' logs/metrics.log | jq -R -s -c 'split("\n")[:-1]') \
+            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
+            '{
+              streams: [
+                {
+                  stream: { job: $job, source: "GitHubActions", type: "metrics" },
+                  values: ($metrics | map([(now|floor|tostring)+"000000000", .]))
+                },
+                {
+                  stream: { job: $job, source: "GitHubActions", type: "execution" },
+                  values: [[(now|floor|tostring)+"000000000", $raw]]
+                }
+              ]
+            }')
 
           echo "$LOG_CONTENT" > loki-log.json
 
-          echo "🔗 Sending logs to Grafana Loki..."
+          # 5️⃣ Push logs to Grafana Loki
+          echo "🔗 Sending logs and metrics to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
             -u "$LOKI_USER:$LOKI_TOKEN" \
             -H "Content-Type: application/json" \
@@ -101,7 +143,7 @@ jobs:
           cat /tmp/loki_resp.txt || echo "(empty)"
 
           if [[ "$RESPONSE" == "204" ]]; then
-            echo "✅ Logs successfully sent to Grafana Loki!"
+            echo "✅ Logs and metrics successfully sent to Grafana Loki!"
           else
             echo "❌ Failed to send logs. (HTTP $RESPONSE)"
-            exit 0  # Don't fail workflow if Loki fails
+          fi
