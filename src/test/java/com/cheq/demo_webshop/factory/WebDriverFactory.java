@@ -5,6 +5,7 @@ import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.edge.EdgeDriver;
 import org.openqa.selenium.firefox.FirefoxDriver;
+import java.util.Arrays;
 
 /**
  * Factory class for creating WebDriver instances based on browser type.
@@ -23,19 +24,32 @@ public class WebDriverFactory {
             case "chrome":
                 ChromeOptions options = new ChromeOptions();
 
-                // ✅ Check for headless flag from system property or environment variable
-                boolean isHeadless = Boolean.parseBoolean(System.getProperty("headless",
-                        System.getenv().getOrDefault("HEADLESS", "false")));
+                // ✅ Read HEADLESS from GitHub Actions or local run
+                boolean isHeadless = Boolean.parseBoolean(System.getProperty(
+                        "headless",
+                        System.getenv().getOrDefault("HEADLESS", "false")
+                ));
+
+                // ✅ Always set essential args for Linux-based runners
+                options.addArguments(
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--remote-allow-origins=*",
+                        "--window-size=1920,1080"
+                );
 
                 if (isHeadless) {
                     options.addArguments("--headless=new");
-                    options.addArguments("--no-sandbox");
-                    options.addArguments("--disable-dev-shm-usage");
-                    options.addArguments("--disable-gpu");
-                    options.addArguments("--window-size=1920,1080");
-                    System.out.println("Running Chrome in HEADLESS mode for CI/CD environment.");
+                    System.out.println("🚀 Running Chrome in HEADLESS mode (GitHub Actions)");
                 } else {
-                    System.out.println("Running Chrome in NORMAL mode for local testing.");
+                    System.out.println("🧭 Running Chrome in NORMAL mode (Local)");
+                }
+
+                // ✅ Optional: set binary path for GitHub Actions Chrome
+                String chromeBinary = System.getenv("CHROME_BIN");
+                if (chromeBinary != null && !chromeBinary.isEmpty()) {
+                    options.setBinary(chromeBinary);
                 }
 
                 return new ChromeDriver(options);
