@@ -103,31 +103,31 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Prepare Loki JSON payload with metrics as numeric labels
+          # ✅ Prepare Loki JSON payload with numeric metrics inside log line
           LOG_CONTENT=$(jq -n \
             --arg job "$PROJECT_NAME" \
+            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             --argjson tests_run "$TOTAL" \
             --argjson failures "$FAILURES" \
             --argjson passed "$PASSES" \
             --argjson pass_rate "$PASS_RATE" \
             --argjson duration "$TEST_DURATION" \
-            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             '{
               streams: [
                 {
-                  stream: {
-                    job: $job,
-                    type: "metrics",
-                    tests_run: $tests_run,
-                    failures: $failures,
-                    passed: $passed,
-                    pass_rate: $pass_rate,
-                    duration_seconds: $duration
-                  },
-                  values: [[(now|floor|tostring)+"000000000", "metrics"]]
+                  stream: { job: $job, type: "metrics" },
+                  values: [[(now|floor|tostring)+"000000000", 
+                    {
+                      "tests_run": $tests_run,
+                      "failures": $failures,
+                      "passed": $passed,
+                      "pass_rate": $pass_rate,
+                      "duration_seconds": $duration
+                    } | @json
+                  ]]
                 },
                 {
-                  stream: { job: $job, source: "GitHubActions", type: "execution" },
+                  stream: { job: $job, type: "execution" },
                   values: [[(now|floor|tostring)+"000000000", $raw]]
                 }
               ]
