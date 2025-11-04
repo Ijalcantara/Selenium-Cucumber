@@ -35,7 +35,7 @@ jobs:
       - name: Install Allure CLI
         run: npm install -g allure-commandline@2
 
-      # 🧪 Run tests (continue even on failure)
+      # 🧪 Run tests
       - name: Run Maven tests
         env:
           BASE_URL: "https://github.com/Ijalcantara/Selenium-Cucumber"
@@ -73,7 +73,7 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # 🔗 Push logs + numeric metrics to Grafana Loki
+      # 🔗 Push logs + metrics to Grafana Loki
       - name: Push logs and metrics to Grafana Loki
         if: ${{ always() }}
         env:
@@ -87,7 +87,7 @@ jobs:
           echo "🛰️ Preparing log payload..."
           mkdir -p logs
 
-          # Extract summary metrics from surefire reports
+          # Extract summary metrics
           PASSES=$(grep -oP 'Failures: 0, Errors: 0' target/surefire-reports/*.txt | wc -l || echo 0)
           FAILURES=$(grep -oP 'Failures: [1-9]\d*' target/surefire-reports/*.txt | wc -l || echo 0)
           TOTAL=$((PASSES + FAILURES))
@@ -103,23 +103,33 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Prepare Loki JSON payload with numeric metrics
+          # Prepare Loki JSON payload with metrics as labels
           LOG_CONTENT=$(jq -n \
             --arg job "$PROJECT_NAME" \
-            --arg duration "$TEST_DURATION" \
             --arg tests_run "$TOTAL" \
             --arg failures "$FAILURES" \
             --arg passed "$PASSES" \
             --arg pass_rate "$PASS_RATE" \
+            --arg duration "$TEST_DURATION" \
             --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             '{
               streams: [
-                { stream: { job: $job, metric: "pass_rate" }, values: [[(now|floor|tostring)+"000000000", ($pass_rate|tonumber)]] },
-                { stream: { job: $job, metric: "tests_run" }, values: [[(now|floor|tostring)+"000000000", ($tests_run|tonumber)]] },
-                { stream: { job: $job, metric: "failures" }, values: [[(now|floor|tostring)+"000000000", ($failures|tonumber)]] },
-                { stream: { job: $job, metric: "passed" }, values: [[(now|floor|tostring)+"000000000", ($passed|tonumber)]] },
-                { stream: { job: $job, metric: "duration_seconds" }, values: [[(now|floor|tostring)+"000000000", ($duration|tonumber)]] },
-                { stream: { job: $job, type: "execution" }, values: [[(now|floor|tostring)+"000000000", $raw]] }
+                {
+                  stream: {
+                    job: $job,
+                    type: "metrics",
+                    tests_run: $tests_run,
+                    failures: $failures,
+                    passed: $passed,
+                    pass_rate: $pass_rate,
+                    duration_seconds: $duration
+                  },
+                  values: [[(now|floor|tostring)+"000000000", "metrics"]]
+                },
+                {
+                  stream: { job: $job, source: "GitHubActions", type: "execution" },
+                  values: [[(now|floor|tostring)+"000000000", $raw]]
+                }
               ]
             }'
           )
