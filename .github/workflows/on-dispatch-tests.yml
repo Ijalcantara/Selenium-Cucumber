@@ -27,14 +27,14 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 🧰 Install dependencies
+      # 🧰 Install dependencies (with Node 20 + sudo for npm global installs)
       - name: Install dependencies
         run: |
           sudo apt-get update -y
           sudo apt-get install -y unzip wget jq google-chrome-stable
-          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
           sudo apt-get install -y nodejs
-          npm install -g allure-commandline http-server
+          sudo npm install -g allure-commandline http-server
 
       # 🧪 Run Selenium-Cucumber Tests
       - name: Run Cucumber Tests
@@ -47,7 +47,7 @@ jobs:
           DURATION=$((END - START))
           echo "duration_seconds=$DURATION" >> $GITHUB_ENV
 
-      # 📊 Generate Allure Report
+      # 📊 Generate Allure Reports
       - name: Generate Allure Reports
         run: |
           allure generate target/allure-results --clean -o allure-report || true
