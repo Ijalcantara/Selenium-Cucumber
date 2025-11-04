@@ -31,7 +31,7 @@ jobs:
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 
-      # 🌐 Install Chrome dependencies (Ubuntu 24.04 compatible)
+      # 🌐 Install Chrome dependencies
       - name: Install Chrome dependencies
         run: |
           sudo apt-get update
@@ -85,7 +85,7 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # 🔗 Push logs to Grafana Loki (robust for multi-line logs)
+      # 🔗 Push logs to Grafana Loki (handles multi-line logs safely)
       - name: Push logs to Grafana Loki
         if: ${{ always() }}
         env:
@@ -103,9 +103,9 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Use jq --slurpfile for multi-line logs
-          LOG_CONTENT=$(jq -Rn --arg job "$PROJECT_NAME" --slurpfile content logs/execution.log \
-            '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content[0] ]]}]}')
+          # Safely escape logs as a JSON string for Loki
+          LOG_CONTENT=$(jq -Rn --arg job "$PROJECT_NAME" --arg content "$(jq -Rs . < logs/execution.log)" \
+            '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
 
           echo "$LOG_CONTENT" > loki-log.json
 
@@ -123,4 +123,4 @@ jobs:
             echo "✅ Logs successfully sent to Grafana Loki!"
           else
             echo "❌ Failed to send logs. (HTTP $RESPONSE)"
-            exit 0  # Don't fail workflow if Loki fails
+            exit 0
