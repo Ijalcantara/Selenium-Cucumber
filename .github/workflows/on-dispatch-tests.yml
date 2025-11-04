@@ -38,7 +38,7 @@ jobs:
       # 🧪 Run tests (continue even on failure)
       - name: Run Maven tests
         env:
-          BASE_URL: "https://jmiguelcheq.github.io/calculator-demo"
+          BASE_URL: "https://github.com/Ijalcantara/Selenium-Cucumber"
         run: |
           set +e
           mvn -B clean test -DbaseUrl="${BASE_URL}" -Dheadless="${HEADLESS}"
@@ -83,16 +83,17 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          LOG_CONTENT=$(jq -Rn --arg job "${PROJECT_NAME}" --arg content "$(cat logs/execution.log)" \
+          # Escape newlines and quotes for Loki JSON
+          LOG_CONTENT=$(jq -Rn --arg job "$PROJECT_NAME" --arg content "$(sed 's/"/\\"/g; s/$/\\n/' logs/execution.log | tr -d '\n')" \
             '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
 
           echo "$LOG_CONTENT" > loki-log.json
 
           echo "🔗 Sending logs to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
-            -u "${LOKI_USER}:${LOKI_TOKEN}" \
+            -u "$LOKI_USER:$LOKI_TOKEN" \
             -H "Content-Type: application/json" \
-            -X POST "${LOKI_URL}" \
+            -X POST "$LOKI_URL" \
             --data-binary "@loki-log.json")
 
           echo "HTTP Response Code: $RESPONSE"
@@ -102,5 +103,4 @@ jobs:
             echo "✅ Logs successfully sent to Grafana Loki!"
           else
             echo "❌ Failed to send logs. (HTTP $RESPONSE)"
-            exit 0  # Don't fail entire workflow if Loki has an issue
-          fi
+            exit 0  # Don't fail workflow if Loki fails
