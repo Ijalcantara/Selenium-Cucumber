@@ -38,7 +38,7 @@ jobs:
       # 🧪 Run tests (continue even on failure)
       - name: Run Maven tests
         env:
-          BASE_URL: "https://github.com/Ijalcantara/Selenium-Cucumber"
+          BASE_URL: "https://ijalcantara.github.io/Selenium-Cucumber"
         run: |
           set +e
           mvn -B clean test -DbaseUrl="${BASE_URL}" -Dheadless="${HEADLESS}"
@@ -66,10 +66,11 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # 🔗 Push logs to Grafana Loki (hidden credentials)
+      # 🔗 Push logs to Grafana Loki
       - name: Push logs to Grafana Loki
         if: ${{ always() }}
         env:
+          PROJECT_NAME: Selenium-Cucumber-Tests
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
           LOKI_USER: ${{ secrets.GRAFANA_LOKI_USER }}
           LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
