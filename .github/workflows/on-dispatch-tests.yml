@@ -15,7 +15,7 @@ jobs:
       HEADLESS: "true"
 
     steps:
-      # 🧩 Checkout code
+      # 🧩 Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -31,7 +31,7 @@ jobs:
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 
-      # 🌐 Install Chrome dependencies (modern Ubuntu)
+      # 🌐 Install Chrome dependencies (Ubuntu 24.04 compatible)
       - name: Install Chrome dependencies
         run: |
           sudo apt-get update
@@ -39,9 +39,7 @@ jobs:
             libnss3 \
             fonts-liberation \
             libxss1 \
-            libasound2 \
             libatk1.0-0 \
-            libatk-bridge2.0-0 \
             libcups2 \
             libdrm2 \
             libgbm1 \
@@ -50,11 +48,7 @@ jobs:
             libxcomposite1 \
             libxdamage1 \
             libxrandr2 \
-            libxtst6 \
-            libwayland-client0 \
-            libwayland-cursor0 \
-            libx11-xcb1 \
-            libxcb1
+            libxtst6
 
       # 📦 Install Allure CLI
       - name: Install Allure CLI
