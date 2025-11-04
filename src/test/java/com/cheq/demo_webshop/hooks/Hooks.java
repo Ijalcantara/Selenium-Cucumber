@@ -23,9 +23,6 @@ public class Hooks {
     private AllureUtil allureUtil;
     private static final Logger logger = LoggerUtil.getLogger(Hooks.class);
 
-    /**
-     * Initializes WebDriver, loads configuration, and sets up Allure environment before each scenario.
-     */
     @Before
     public void setUp(Scenario scenario) throws IOException {
         String env = System.getProperty("env", "dev");
@@ -35,16 +32,17 @@ public class Hooks {
         String url = ConfigReader.get("baseUrl");
 
         try {
-            // ✅ Load WebDriver (handles headless mode via WebDriverFactory)
+            // ✅ Force headless mode in CI environments
+            if (System.getenv("CI") != null && !browser.toLowerCase().contains("headless")) {
+                browser = browser + "-headless";
+            }
+
             driver = WebDriverFactory.loadDriver(browser);
             driver.manage().window().maximize();
             driver.get(url);
             DriverManager.setDriver(driver);
 
-            // ✅ Initialize Allure reporting utility
             allureUtil = new AllureUtil(driver);
-
-            // ✅ Write environment metadata to Allure report
             allureUtil.writeAllureEnvironment(
                     ImmutableMap.<String, String>builder()
                             .put("OS", System.getProperty("os.name"))
@@ -56,34 +54,26 @@ public class Hooks {
             logger.info("✅ Starting scenario: " + scenario.getName());
         } catch (Exception e) {
             logger.error("❌ Failed to initialize WebDriver: " + e.getMessage(), e);
-            // Do not crash the whole test suite if driver setup fails
             allureUtil = null;
+            driver = null;
         }
     }
 
-    /**
-     * Captures and attaches a screenshot to the Allure report after each step (if possible).
-     */
     @AfterStep
     public void afterEachStep(Scenario scenario) {
-        if (allureUtil != null && driver != null) {
+        if (driver != null && allureUtil != null) {
             try {
                 allureUtil.captureAndAttachScreenshot();
             } catch (Exception e) {
                 logger.warn("⚠️ Failed to capture step screenshot: " + e.getMessage());
             }
-        } else {
-            logger.warn("⚠️ Skipping step screenshot — WebDriver or AllureUtil not initialized.");
         }
     }
 
-    /**
-     * Captures screenshot on failure and cleans up resources.
-     */
     @After(order = 1)
     public void captureFailure(Scenario scenario) {
         if (scenario.isFailed()) {
-            if (allureUtil != null && driver != null) {
+            if (driver != null && allureUtil != null) {
                 try {
                     allureUtil.captureAndAttachScreenshot();
                     logger.error("❌ Scenario failed: " + scenario.getName());
@@ -91,14 +81,11 @@ public class Hooks {
                     logger.error("⚠️ Could not capture failure screenshot: " + e.getMessage());
                 }
             } else {
-                logger.warn("⚠️ Skipping failure screenshot — AllureUtil not initialized.");
+                logger.warn("⚠️ Skipping failure screenshot — driver or Allure not initialized.");
             }
         }
     }
 
-    /**
-     * Quits WebDriver after each scenario.
-     */
     @After(order = 0)
     public void tearDown() {
         if (driver != null) {
@@ -110,8 +97,6 @@ public class Hooks {
             } finally {
                 driver = null;
             }
-        } else {
-            logger.warn("⚠️ No WebDriver instance found to close.");
         }
     }
 }
