@@ -85,13 +85,14 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # 🔗 Push logs to Grafana Loki
+      # 🔗 Push logs to Grafana Loki (robust for multi-line logs)
       - name: Push logs to Grafana Loki
         if: ${{ always() }}
         env:
           LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
           LOKI_USER: ${{ secrets.GRAFANA_LOKI_USER }}
           LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
+          PROJECT_NAME: Selenium-Cucumber-Tests
         run: |
           echo "🛰️ Preparing log payload..."
           mkdir -p logs
@@ -102,16 +103,17 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          LOG_CONTENT=$(jq -Rn --arg job "${PROJECT_NAME}" --arg content "$(cat logs/execution.log)" \
-            '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content ]]}]}')
+          # Use jq --slurpfile for multi-line logs
+          LOG_CONTENT=$(jq -Rn --arg job "$PROJECT_NAME" --slurpfile content logs/execution.log \
+            '{streams:[{stream:{job:$job,source:"GitHubActions"},values:[[ (now|floor|tostring)+"000000000", $content[0] ]]}]}')
 
           echo "$LOG_CONTENT" > loki-log.json
 
           echo "🔗 Sending logs to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
-            -u "${LOKI_USER}:${LOKI_TOKEN}" \
+            -u "$LOKI_USER:$LOKI_TOKEN" \
             -H "Content-Type: application/json" \
-            -X POST "${LOKI_URL}" \
+            -X POST "$LOKI_URL" \
             --data-binary "@loki-log.json")
 
           echo "HTTP Response Code: $RESPONSE"
@@ -121,4 +123,4 @@ jobs:
             echo "✅ Logs successfully sent to Grafana Loki!"
           else
             echo "❌ Failed to send logs. (HTTP $RESPONSE)"
-            exit 0  # Don't fail entire workflow if Loki has an issue
+            exit 0  # Don't fail workflow if Loki fails
