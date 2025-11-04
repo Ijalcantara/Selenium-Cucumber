@@ -103,14 +103,14 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Prepare Loki JSON payload with metrics as labels
+          # Prepare Loki JSON payload with metrics as numeric labels
           LOG_CONTENT=$(jq -n \
             --arg job "$PROJECT_NAME" \
-            --arg tests_run "$TOTAL" \
-            --arg failures "$FAILURES" \
-            --arg passed "$PASSES" \
-            --arg pass_rate "$PASS_RATE" \
-            --arg duration "$TEST_DURATION" \
+            --argjson tests_run "$TOTAL" \
+            --argjson failures "$FAILURES" \
+            --argjson passed "$PASSES" \
+            --argjson pass_rate "$PASS_RATE" \
+            --argjson duration "$TEST_DURATION" \
             --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             '{
               streams: [
