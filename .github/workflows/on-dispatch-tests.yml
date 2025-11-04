@@ -51,7 +51,7 @@ jobs:
           echo "TEST_DURATION=$DURATION" >> $GITHUB_ENV
           echo "MAVEN_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
 
-      # 📤 Upload raw reports even if failed
+      # 📤 Upload raw reports
       - name: Upload test reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -87,7 +87,7 @@ jobs:
           echo "🛰️ Preparing log payload..."
           mkdir -p logs
 
-          # 1️⃣ Extract summary metrics from surefire reports
+          # Extract summary metrics from surefire reports
           PASSES=$(grep -oP 'Failures: 0, Errors: 0' target/surefire-reports/*.txt | wc -l || echo 0)
           FAILURES=$(grep -oP 'Failures: [1-9]\d*' target/surefire-reports/*.txt | wc -l || echo 0)
           TOTAL=$((PASSES + FAILURES))
@@ -96,42 +96,34 @@ jobs:
             PASS_RATE=$((100 * PASSES / TOTAL))
           fi
 
-          # 2️⃣ Create structured metrics log
-          {
-            echo "status=passed count=$PASSES"
-            echo "status=failed count=$FAILURES"
-            echo "duration_seconds=$TEST_DURATION"
-            echo "pass_rate_percent=$PASS_RATE"
-          } > logs/metrics.log
+          # Create JSON metrics log
+          echo "{\"tests_run\":$TOTAL,\"failures\":$FAILURES,\"passed\":$PASSES,\"pass_rate\":$PASS_RATE,\"duration_seconds\":$TEST_DURATION}" > logs/metrics.json
 
-          # 3️⃣ Combine raw execution logs for debugging visibility
+          # Combine raw execution logs
           if [ -d "target/surefire-reports" ] && [ "$(ls -A target/surefire-reports)" ]; then
             cat target/surefire-reports/*.txt > logs/execution.log
           else
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # 4️⃣ Prepare Loki JSON payload with multiple entries
+          # Prepare Loki JSON payload with metrics + execution streams
           LOG_CONTENT=$(jq -n \
-            --arg job "$PROJECT_NAME" \
-            --slurpfile metrics <(awk '{print $0}' logs/metrics.log | jq -R -s -c 'split("\n")[:-1]') \
+            --slurpfile metrics logs/metrics.json \
             --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
+            --arg job "$PROJECT_NAME" \
             '{
               streams: [
-                {
-                  stream: { job: $job, source: "GitHubActions", type: "metrics" },
-                  values: ($metrics | map([(now|floor|tostring)+"000000000", .]))
-                },
-                {
-                  stream: { job: $job, source: "GitHubActions", type: "execution" },
-                  values: [[(now|floor|tostring)+"000000000", $raw]]
-                }
+                { stream: { job: $job, source: "GitHubActions", type: "metrics" },
+                  values: [[ (now|floor|tostring)+"000000000", ($metrics[0]|@json) ]] },
+                { stream: { job: $job, source: "GitHubActions", type: "execution" },
+                  values: [[ (now|floor|tostring)+"000000000", $raw ]] }
               ]
-            }')
+            }'
+          )
 
           echo "$LOG_CONTENT" > loki-log.json
 
-          # 5️⃣ Push logs to Grafana Loki
+          # Push to Grafana Loki
           echo "🔗 Sending logs and metrics to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
             -u "$LOKI_USER:$LOKI_TOKEN" \
