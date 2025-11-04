@@ -73,7 +73,7 @@ jobs:
           name: allure-report
           path: allure-report
 
-      # 🔗 Push logs + metrics to Grafana Loki
+      # 🔗 Push logs + numeric metrics to Grafana Loki
       - name: Push logs and metrics to Grafana Loki
         if: ${{ always() }}
         env:
@@ -103,23 +103,23 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # Prepare Loki JSON payload with each metric as its own stream
+          # Prepare Loki JSON payload with numeric metrics
           LOG_CONTENT=$(jq -n \
             --arg job "$PROJECT_NAME" \
             --arg duration "$TEST_DURATION" \
-            --argjson total "$TOTAL" \
-            --argjson failures "$FAILURES" \
-            --argjson passed "$PASSES" \
-            --argjson pass_rate "$PASS_RATE" \
+            --arg tests_run "$TOTAL" \
+            --arg failures "$FAILURES" \
+            --arg passed "$PASSES" \
+            --arg pass_rate "$PASS_RATE" \
             --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             '{
               streams: [
-                { stream: { job: $job, type: "tests_run" }, values: [[ (now|floor|tostring)+"000000000", $total ]] },
-                { stream: { job: $job, type: "failures" }, values: [[ (now|floor|tostring)+"000000000", $failures ]] },
-                { stream: { job: $job, type: "passed" }, values: [[ (now|floor|tostring)+"000000000", $passed ]] },
-                { stream: { job: $job, type: "pass_rate" }, values: [[ (now|floor|tostring)+"000000000", $pass_rate ]] },
-                { stream: { job: $job, type: "duration_seconds" }, values: [[ (now|floor|tostring)+"000000000", ($duration|tonumber) ]] },
-                { stream: { job: $job, type: "execution" }, values: [[ (now|floor|tostring)+"000000000", $raw ]] }
+                { stream: { job: $job, metric: "pass_rate" }, values: [[(now|floor|tostring)+"000000000", ($pass_rate|tonumber)]] },
+                { stream: { job: $job, metric: "tests_run" }, values: [[(now|floor|tostring)+"000000000", ($tests_run|tonumber)]] },
+                { stream: { job: $job, metric: "failures" }, values: [[(now|floor|tostring)+"000000000", ($failures|tonumber)]] },
+                { stream: { job: $job, metric: "passed" }, values: [[(now|floor|tostring)+"000000000", ($passed|tonumber)]] },
+                { stream: { job: $job, metric: "duration_seconds" }, values: [[(now|floor|tostring)+"000000000", ($duration|tonumber)]] },
+                { stream: { job: $job, type: "execution" }, values: [[(now|floor|tostring)+"000000000", $raw]] }
               ]
             }'
           )
