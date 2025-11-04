@@ -127,7 +127,7 @@ jobs:
           echo "🔗 Sending logs and metrics to Grafana Loki..."
           RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
             -u "$LOKI_USER:$LOKI_TOKEN" \
-            -H "Content-Type: application/json" \
+            -H 'Content-Type: application/json' \
             -X POST "$LOKI_URL" \
             --data-binary "@loki-log.json")
 
