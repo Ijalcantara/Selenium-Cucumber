@@ -1,4 +1,4 @@
-name: Run Selenium-Cucumber tests and push logs to Grafana Loki
+name: Run Selenium-Cucumber tests and push logs to Grafana Loki (Enhanced)
 
 on:
   repository_dispatch:
@@ -13,143 +13,164 @@ jobs:
     env:
       PROJECT_NAME: Selenium-Cucumber-Tests
       HEADLESS: "true"
+      ENVIRONMENT: "staging"
 
     steps:
-      # 🧩 Checkout code
+      # 🧩 Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ☕ Setup Java for Maven
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      # ☕ Setup Java 17
+      - name: Set up Java
+        uses: actions/setup-java@v3
         with:
           distribution: temurin
-          java-version: "17"
-          cache: maven
+          java-version: 17
 
-      # 🌐 Install Chrome
-      - name: Install Chrome
-        uses: browser-actions/setup-chrome@v1
-
-      # 📦 Install Allure CLI
-      - name: Install Allure CLI
-        run: npm install -g allure-commandline@2
-
-      # 🧪 Run Maven tests
-      - name: Run Maven tests
-        env:
-          BASE_URL: "https://github.com/Ijalcantara/Selenium-Cucumber"
+      # 🧰 Install dependencies
+      - name: Install dependencies
         run: |
-          set +e
-          START_TIME=$(date +%s)
-          mvn -B clean test -DbaseUrl="${BASE_URL}" -Dheadless="${HEADLESS}"
-          TEST_EXIT_CODE=$?
-          END_TIME=$(date +%s)
-          DURATION=$((END_TIME - START_TIME))
+          sudo apt-get update -y
+          sudo apt-get install -y unzip wget jq google-chrome-stable
+          curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+          sudo apt-get install -y nodejs
+          npm install -g allure-commandline http-server
 
-          echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
-          echo "TEST_DURATION=$DURATION" >> $GITHUB_ENV
-          echo "MAVEN_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_ENV
+      # 🧪 Run Selenium-Cucumber Tests
+      - name: Run Cucumber Tests
+        id: run_tests
+        run: |
+          echo "Running Cucumber tests for environment: $ENVIRONMENT"
+          START=$(date +%s)
+          mvn clean test -Dheadless=$HEADLESS -Denv=$ENVIRONMENT
+          END=$(date +%s)
+          DURATION=$((END - START))
+          echo "duration_seconds=$DURATION" >> $GITHUB_ENV
 
-      # 📤 Upload raw reports
-      - name: Upload test reports
-        if: ${{ always() }}
+      # 📊 Generate Allure Report
+      - name: Generate Allure Reports
+        run: |
+          allure generate target/allure-results --clean -o allure-report || true
+          allure generate target/allure-results --single-file --clean -o allure-report-single || true
+
+      # 📦 Upload test artifacts
+      - name: Upload Test Reports
         uses: actions/upload-artifact@v4
         with:
-          name: surefire-reports
-          path: target/surefire-reports
+          name: test-reports
+          path: |
+            target/surefire-reports
+            target/cucumber-reports
+            allure-report
+            allure-report-single
+            target/allure-results
 
-      # 📊 Generate Allure report
-      - name: Generate Allure HTML
-        if: ${{ always() }}
+      # 🔎 Validate Loki secrets
+      - name: Validate Grafana Loki configuration
         run: |
-          allure generate target/allure-results --clean -o allure-report || echo "No allure results found."
+          if [ -z "${{ secrets.GRAFANA_LOKI_URL }}" ] || [ -z "${{ secrets.GRAFANA_LOKI_TOKEN }}" ]; then
+            echo "❌ Missing required secrets: GRAFANA_LOKI_URL or GRAFANA_LOKI_TOKEN"
+            exit 1
+          fi
 
-      # 📤 Upload Allure report
-      - name: Upload Allure HTML
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: allure-report
-          path: allure-report
-
-      # 🔗 Push logs + metrics to Grafana Loki
-      - name: Push logs and metrics to Grafana Loki
-        if: ${{ always() }}
-        env:
-          PROJECT_NAME: Selenium-Cucumber-Tests
-          LOKI_URL: ${{ secrets.GRAFANA_LOKI_URL }}
-          LOKI_USER: ${{ secrets.GRAFANA_LOKI_USER }}
-          LOKI_TOKEN: ${{ secrets.GRAFANA_LOKI_TOKEN }}
-          TEST_DURATION: ${{ env.TEST_DURATION }}
-          TEST_EXIT_CODE: ${{ env.TEST_EXIT_CODE }}
+      # 🔍 Parse Allure Summary
+      - name: Parse Allure Summary
+        id: allure_summary
         run: |
-          echo "🛰️ Preparing log payload..."
-          mkdir -p logs
+          SUMMARY_FILE="allure-report/widgets/summary.json"
+          if [ -f "$SUMMARY_FILE" ]; then
+            TOTAL=$(jq '.statistic.total' "$SUMMARY_FILE")
+            PASSED=$(jq '.statistic.passed' "$SUMMARY_FILE")
+            FAILED=$(jq '.statistic.failed' "$SUMMARY_FILE")
+            BROKEN=$(jq '.statistic.broken' "$SUMMARY_FILE")
+            SKIPPED=$(jq '.statistic.skipped' "$SUMMARY_FILE")
+            UNKNOWN=$(jq '.statistic.unknown' "$SUMMARY_FILE")
+          else
+            echo "⚠️ No summary.json found. Defaulting to zeros."
+            TOTAL=0; PASSED=0; FAILED=0; BROKEN=0; SKIPPED=0; UNKNOWN=0;
+          fi
 
-          # Extract summary metrics
-          PASSES=$(grep -oP 'Failures: 0, Errors: 0' target/surefire-reports/*.txt | wc -l || echo 0)
-          FAILURES=$(grep -oP 'Failures: [1-9]\d*' target/surefire-reports/*.txt | wc -l || echo 0)
-          TOTAL=$((PASSES + FAILURES))
-          PASS_RATE=0
           if [ "$TOTAL" -gt 0 ]; then
-            PASS_RATE=$((100 * PASSES / TOTAL))
-          fi
-
-          # Combine raw execution logs
-          if [ -d "target/surefire-reports" ] && [ "$(ls -A target/surefire-reports)" ]; then
-            cat target/surefire-reports/*.txt > logs/execution.log
+            PASS_RATE=$(echo "scale=2; $PASSED * 100 / $TOTAL" | bc)
           else
-            echo "No test logs found, using default message." > logs/execution.log
+            PASS_RATE=0
           fi
 
-          # Prepare Loki JSON payload with metrics as numeric JSON fields
-          LOG_CONTENT=$(jq -n \
-            --arg job "$PROJECT_NAME" \
-            --argjson tests_run "$TOTAL" \
-            --argjson failures "$FAILURES" \
-            --argjson passed "$PASSES" \
-            --argjson pass_rate "$PASS_RATE" \
-            --argjson duration "$TEST_DURATION" \
-            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
-            '{
-              streams: [
-                {
-                  stream: {
-                    job: $job,
-                    type: "metrics"
-                  },
-                  values: [[(now|floor|tostring)+"000000000", {
-                    tests_run: $tests_run,
-                    failures: $failures,
-                    passed: $passed,
-                    pass_rate: $pass_rate,
-                    duration_seconds: $duration
-                  }]]
-                },
-                {
-                  stream: { job: $job, source: "GitHubActions", type: "execution" },
-                  values: [[(now|floor|tostring)+"000000000", $raw]]
-                }
-              ]
-            }'
-          )
+          echo "TOTAL=$TOTAL" >> $GITHUB_ENV
+          echo "PASSED=$PASSED" >> $GITHUB_ENV
+          echo "FAILED=$FAILED" >> $GITHUB_ENV
+          echo "BROKEN=$BROKEN" >> $GITHUB_ENV
+          echo "SKIPPED=$SKIPPED" >> $GITHUB_ENV
+          echo "UNKNOWN=$UNKNOWN" >> $GITHUB_ENV
+          echo "PASS_RATE=$PASS_RATE" >> $GITHUB_ENV
 
-          echo "$LOG_CONTENT" > loki-log.json
-
-          # Push to Grafana Loki
-          echo "🔗 Sending logs and metrics to Grafana Loki..."
-          RESPONSE=$(curl -s -o /tmp/loki_resp.txt -w "%{http_code}" \
-            -u "$LOKI_USER:$LOKI_TOKEN" \
+      # 🧩 Validate Grafana Loki connectivity
+      - name: Test Grafana Loki Connection
+        run: |
+          echo "Testing connectivity to Grafana Loki..."
+          PROBE_PAYLOAD='{"streams": [{"stream": {"probe":"connectivity_test"}, "values": [["'"$(($(date +%s%N)))"'","connection test"]]}]}'
+          RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/resp.txt -X POST \
             -H "Content-Type: application/json" \
-            -X POST "$LOKI_URL" \
-            --data-binary "@loki-log.json")
+            -H "Authorization: Bearer ${{ secrets.GRAFANA_LOKI_TOKEN }}" \
+            -d "$PROBE_PAYLOAD" \
+            "${{ secrets.GRAFANA_LOKI_URL }}/loki/api/v1/push")
+          STATUS=$(tail -n1 <<< "$RESPONSE")
+          if [ "$STATUS" != "204" ]; then
+            echo "⚠️ Connection to Grafana Loki failed with status: $STATUS"
+            echo "Response: $(cat /tmp/resp.txt)"
+            exit 1
+          fi
+          echo "✅ Loki connectivity verified."
 
-          echo "HTTP Response Code: $RESPONSE"
-          cat /tmp/loki_resp.txt || echo "(empty)"
+      # 📤 Push test results to Grafana Loki
+      - name: Push Test Results to Grafana Loki
+        run: |
+          TIMESTAMP=$(($(date +%s%N)))
 
-          if [[ "$RESPONSE" == "204" ]]; then
-            echo "✅ Logs and metrics successfully sent to Grafana Loki!"
+          LOG_MESSAGE=$(printf "%s\n" \
+            "Project: $PROJECT_NAME" \
+            "Environment: $ENVIRONMENT" \
+            "Passed: $PASSED" \
+            "Failed: $FAILED" \
+            "Broken: $BROKEN" \
+            "Skipped: $SKIPPED" \
+            "Total: $TOTAL" \
+            "Pass Rate: ${PASS_RATE}%" \
+            "Duration: ${duration_seconds}s" \
+            "Run ID: $GITHUB_RUN_ID" \
+            "Branch: $GITHUB_REF_NAME" \
+            "Repo: $GITHUB_REPOSITORY")
+
+          PAYLOAD=$(jq -n \
+            --arg msg "$LOG_MESSAGE" \
+            --arg time "$TIMESTAMP" \
+            --arg project "$PROJECT_NAME" \
+            --arg env "$ENVIRONMENT" \
+            '{
+              streams: [{
+                stream: {
+                  project: $project,
+                  job: "selenium_cucumber_tests",
+                  env: $env,
+                  source: "github_actions"
+                },
+                values: [[ $time, $msg ]]
+              }]
+            }')
+
+          echo "Sending logs to Grafana Loki..."
+          RESPONSE=$(curl -s -w "%{http_code}" -o /tmp/loki_resp.txt -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.GRAFANA_LOKI_TOKEN }}" \
+            -d "$PAYLOAD" \
+            "${{ secrets.GRAFANA_LOKI_URL }}/loki/api/v1/push")
+
+          STATUS=$(tail -n1 <<< "$RESPONSE")
+
+          if [ "$STATUS" == "204" ]; then
+            echo "✅ Logs successfully sent to Grafana Loki."
           else
-            echo "❌ Failed to send logs. (HTTP $RESPONSE)"
+            echo "❌ Failed to push logs. Status: $STATUS"
+            echo "Response: $(cat /tmp/loki_resp.txt)"
+            exit 1
           fi
