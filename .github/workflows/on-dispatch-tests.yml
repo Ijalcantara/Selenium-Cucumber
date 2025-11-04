@@ -35,7 +35,7 @@ jobs:
       - name: Install Allure CLI
         run: npm install -g allure-commandline@2
 
-      # 🧪 Run tests
+      # 🧪 Run Maven tests
       - name: Run Maven tests
         env:
           BASE_URL: "https://github.com/Ijalcantara/Selenium-Cucumber"
@@ -103,31 +103,32 @@ jobs:
             echo "No test logs found, using default message." > logs/execution.log
           fi
 
-          # ✅ Prepare Loki JSON payload with numeric metrics inside log line
+          # Prepare Loki JSON payload with metrics as numeric JSON fields
           LOG_CONTENT=$(jq -n \
             --arg job "$PROJECT_NAME" \
-            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             --argjson tests_run "$TOTAL" \
             --argjson failures "$FAILURES" \
             --argjson passed "$PASSES" \
             --argjson pass_rate "$PASS_RATE" \
             --argjson duration "$TEST_DURATION" \
+            --arg raw "$(sed 's/"/\\"/g' logs/execution.log | tr '\n' ' ')" \
             '{
               streams: [
                 {
-                  stream: { job: $job, type: "metrics" },
-                  values: [[(now|floor|tostring)+"000000000", 
-                    {
-                      "tests_run": $tests_run,
-                      "failures": $failures,
-                      "passed": $passed,
-                      "pass_rate": $pass_rate,
-                      "duration_seconds": $duration
-                    } | @json
-                  ]]
+                  stream: {
+                    job: $job,
+                    type: "metrics"
+                  },
+                  values: [[(now|floor|tostring)+"000000000", {
+                    tests_run: $tests_run,
+                    failures: $failures,
+                    passed: $passed,
+                    pass_rate: $pass_rate,
+                    duration_seconds: $duration
+                  }]]
                 },
                 {
-                  stream: { job: $job, type: "execution" },
+                  stream: { job: $job, source: "GitHubActions", type: "execution" },
                   values: [[(now|floor|tostring)+"000000000", $raw]]
                 }
               ]
